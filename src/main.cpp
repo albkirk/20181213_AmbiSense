@@ -13,8 +13,8 @@
 
 // HARWARE & SOFTWARE Version
 #define BRANDName "AlBros_Team"                         // Hardware brand name
-#define MODELName "GenBox_A"                            // Hardware model name
-#define SWVer "10.02"                                   // Major.Minor Software version (use String 01.00 - 99.99 format !)
+#define MODELName "AmbiSense"                           // Hardware model name
+#define SWVer "13.01"                                   // Major.Minor Software version (use String 01.00 - 99.99 format !)
 
 // Battery & ESP Voltage
 #define BattPowered true                                // Is the device battery powered?
@@ -22,12 +22,10 @@
 #define Batt_L_Thrs 40                                  // Battery level threshold [0%-100%] (before slepping forever).
 
 // GPIO to Function Assignment
-ADC_MODE(ADC_VCC);                                      // TO COMMENT IF  you will use the ADC
-#define Internal_ADC true                               // will the ADC be used only to measure the interval voltage?
+//ADC_MODE(ADC_VCC);                                      // TO COMMENT IF  you will use the ADC
+#define Internal_ADC false                              // will the ADC be used only to measure the interval voltage?
 #define LED_esp 2                                       // ESP Led is connected to GPIO 2
-#define DHTPIN -1                                       // GPIO Connected to DHT22 Data PIN. -1 means NO DHT used!
-#define GPIO04 4                                        // GPIO 4 for future usage
-#define GPIO05 5                                        // GPIO 5 for future usage
+#define DHTPIN 5                                        // GPIO Connected to DHT22 Data PIN. -1 means NO DHT used!
 #define BUZZER 0                                        // (Active) Buzzer
 
 
@@ -69,12 +67,12 @@ struct strConfig {
 void config_defaults() {
     Serial.println("Setting config Default values");
 
-    config.DeviceName = String("ESP_Generic");            // Device Name
-    config.Location = String("MainRoom");                 // Device Location
+    config.DeviceName = String("AmbiSense");              // Device Name
+    config.Location = String("Hall");                     // Device Location
     config.ClientID = String("001001");                   // Client ID (used on MQTT)
-    config.ONTime = 60;                                   // 0-255 seconds (Byte range)
-    config.SLEEPTime = 0;                                 // 0-255 minutes (Byte range)
-    config.DEEPSLEEP = false;                             // 0 - Disabled, 1 - Enabled
+    config.ONTime = 10;                                   // 0-255 seconds (Byte range)
+    config.SLEEPTime = 15;                                // 0-255 minutes (Byte range)
+    config.DEEPSLEEP = true;                              // 0 - Disabled, 1 - Enabled
     config.LED = true;                                    // 0 - OFF, 1 - ON
     config.TELNET = false;                                // 0 - Disabled, 1 - Enabled
     config.OTA = true;                                    // 0 - Disabled, 1 - Enabled
@@ -114,15 +112,38 @@ void config_defaults() {
 
 
 // **** Normal code definition here ...
+#define ADC_SW_PIN 4                              // Base of Transistor connected to PIN GPIO4, acting as Switch
+float Temperature = 0.0;                          // Variable
+float Humidity = 0.0;                             // Variable
+float Light = 0.0;                                // Variable
 
 
 // **** Normal code functions here ...
+float getLight(int Nmeasures = Number_of_measures, float Max_val = 910, float Min_val = 55) {
+    // 910 and 55 are empiric values extract while testing the circut
+    digitalWrite(ADC_SW_PIN, HIGH);   // Set ADC Switch to HIGH to reading Light (BC547 Saturated)
+    telnet_println("ADC Switch in LIGHT position");
+    float lux = 0.0;
+    for(int i = 0; i < Nmeasures; i++) {
+        delay(10);
+        lux += (Max_val - (float)analogRead(A0)) / (Max_val - Min_val) * 100;
+    }
+	  lux = lux / Nmeasures;
+    if ( lux < 0 )   lux = 0.0;
+    if ( lux > 100 ) lux = 100.0;
+    telnet_println("LUX: " + String(lux));
+    digitalWrite(ADC_SW_PIN, LOW);   // Set ADC Switch to LOW to reading Voltage (BC547 Cut)
+    telnet_println("ADC Switch in VOLTAGE position");
+    return lux;
+}
 
 
 void setup() {
 // Output GPIOs
   pinMode(LED_esp, OUTPUT);
   digitalWrite(LED_esp, HIGH);                      // initialize LED off
+  pinMode(ADC_SW_PIN, OUTPUT);                      // Initialize the ADC_SW_PIN pin as an output
+  digitalWrite(ADC_SW_PIN, LOW);                    // Set ADC Switch to LOW to reading Voltage (BC547 Cut)
 
 
 // Input GPIOs
@@ -192,7 +213,16 @@ void setup() {
 
 
   // **** Normal SETUP Sketch code here...
-
+      Temperature = getTemperature();
+      Humidity = getHumidity();
+      Light = getLight();
+      telnet_print("Temperature: " + String(Temperature) + " C\t");
+      telnet_print("Humidity: " + String(Humidity) + " %\t");
+      telnet_print("Light: " + String(Light) + " %\t");
+      telnet_println("");
+      mqtt_publish(mqtt_pathtele(), "Temperature", String(Temperature));
+      mqtt_publish(mqtt_pathtele(), "Humidity", String(Humidity));
+      mqtt_publish(mqtt_pathtele(), "Light", String(Light));
 
   // Last bit of code before leave setup
       ONTime_Offset = millis()/1000 + 0.1;  //  100ms after finishing the SETUP function it starts the "ONTime" countdown.
