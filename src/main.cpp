@@ -14,7 +14,7 @@
 // HARWARE & SOFTWARE Version
 #define BRANDName "AlBros_Team"                         // Hardware brand name
 #define MODELName "AmbiSense"                           // Hardware model name
-#define SWVer "13.01"                                   // Major.Minor Software version (use String 01.00 - 99.99 format !)
+#define SWVer "13.02"                                   // Major.Minor Software version (use String 01.00 - 99.99 format !)
 
 // Battery & ESP Voltage
 #define BattPowered true                                // Is the device battery powered?
@@ -122,11 +122,12 @@ float Light = 0.0;                                // Variable
 float getLight(int Nmeasures = Number_of_measures, float Max_val = 910, float Min_val = 55) {
     // 910 and 55 are empiric values extract while testing the circut
     digitalWrite(ADC_SW_PIN, HIGH);   // Set ADC Switch to HIGH to reading Light (BC547 Saturated)
+    delay(100);
     telnet_println("ADC Switch in LIGHT position");
     float lux = 0.0;
     for(int i = 0; i < Nmeasures; i++) {
-        delay(10);
         lux += (Max_val - (float)analogRead(A0)) / (Max_val - Min_val) * 100;
+        delay(10);
     }
 	  lux = lux / Nmeasures;
     if ( lux < 0 )   lux = 0.0;
