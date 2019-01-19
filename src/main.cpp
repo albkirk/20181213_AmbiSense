@@ -14,7 +14,7 @@
 // HARWARE & SOFTWARE Version
 #define BRANDName "AlBros_Team"                         // Hardware brand name
 #define MODELName "AmbiSense"                           // Hardware model name
-#define SWVer "13.02"                                   // Major.Minor Software version (use String 01.00 - 99.99 format !)
+#define SWVer "13.05"                                   // Major.Minor Software version (use String 01.00 - 99.99 format !)
 
 // Battery & ESP Voltage
 #define BattPowered true                                // Is the device battery powered?
@@ -108,35 +108,39 @@ void config_defaults() {
 #include <ntp.h>
 #include <web.h>
 #include <ota.h>
-#include <mqtt.h>
+//#include <mqtt.h>
 
 
 // **** Normal code definition here ...
 #define ADC_SW_PIN 4                              // Base of Transistor connected to PIN GPIO4, acting as Switch
 float Temperature = 0.0;                          // Variable
 float Humidity = 0.0;                             // Variable
-float Light = 0.0;                                // Variable
+float Lux = 0.0;                                  // Variable
 
 
 // **** Normal code functions here ...
-float getLight(int Nmeasures = Number_of_measures, float Max_val = 910, float Min_val = 55) {
+float getLux (int Nmeasures = Number_of_measures, float Max_val = 910, float Min_val = 55) {
     // 910 and 55 are empiric values extract while testing the circut
-    digitalWrite(ADC_SW_PIN, HIGH);   // Set ADC Switch to HIGH to reading Light (BC547 Saturated)
+    digitalWrite(ADC_SW_PIN, HIGH);   // Set ADC Switch to HIGH to sample Lux (BC547 Saturated)
     delay(100);
-    telnet_println("ADC Switch in LIGHT position");
+    telnet_println("ADC Switch in Lux position");
     float lux = 0.0;
     for(int i = 0; i < Nmeasures; i++) {
         lux += (Max_val - (float)analogRead(A0)) / (Max_val - Min_val) * 100;
-        delay(10);
+        //telnet_println("Sample-LUX: " + String(lux));
+        delay(25);
     }
 	  lux = lux / Nmeasures;
     if ( lux < 0 )   lux = 0.0;
     if ( lux > 100 ) lux = 100.0;
     telnet_println("LUX: " + String(lux));
-    digitalWrite(ADC_SW_PIN, LOW);   // Set ADC Switch to LOW to reading Voltage (BC547 Cut)
+    digitalWrite(ADC_SW_PIN, LOW);   // Set ADC Switch to LOW to sample Voltage (BC547 Cut)
     telnet_println("ADC Switch in VOLTAGE position");
     return lux;
 }
+
+
+ #include <mqtt.h>
 
 
 void setup() {
@@ -144,7 +148,7 @@ void setup() {
   pinMode(LED_esp, OUTPUT);
   digitalWrite(LED_esp, HIGH);                      // initialize LED off
   pinMode(ADC_SW_PIN, OUTPUT);                      // Initialize the ADC_SW_PIN pin as an output
-  digitalWrite(ADC_SW_PIN, LOW);                    // Set ADC Switch to LOW to reading Voltage (BC547 Cut)
+  digitalWrite(ADC_SW_PIN, LOW);                    // Set ADC Switch to LOW to sample Voltage (BC547 Cut)
 
 
 // Input GPIOs
@@ -216,14 +220,14 @@ void setup() {
   // **** Normal SETUP Sketch code here...
       Temperature = getTemperature();
       Humidity = getHumidity();
-      Light = getLight();
+      Lux = getLux();
       telnet_print("Temperature: " + String(Temperature) + " C\t");
       telnet_print("Humidity: " + String(Humidity) + " %\t");
-      telnet_print("Light: " + String(Light) + " %\t");
+      telnet_print("Lux: " + String(Lux) + " %\t");
       telnet_println("");
-      mqtt_publish(mqtt_pathtele(), "Temperature", String(Temperature));
-      mqtt_publish(mqtt_pathtele(), "Humidity", String(Humidity));
-      mqtt_publish(mqtt_pathtele(), "Light", String(Light));
+      mqtt_publish(mqtt_pathtele(), "Temperatura", String(Temperature));
+      mqtt_publish(mqtt_pathtele(), "Humidade", String(Humidity));
+      mqtt_publish(mqtt_pathtele(), "Lux", String(Lux));
 
   // Last bit of code before leave setup
       ONTime_Offset = millis()/1000 + 0.1;  //  100ms after finishing the SETUP function it starts the "ONTime" countdown.
