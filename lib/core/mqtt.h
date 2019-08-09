@@ -16,9 +16,10 @@
 
 
 // MQTT Variables
-unsigned int MQTT_Retry = 125;                        // Timer to retry the MQTT connection
-long MQTT_LastTime = 0;                               // Last MQTT connection attempt time stamp
-int MQTT_errors = 0;                                  // MQTT errors Counter
+uint16_t MQTT_state = MQTT_DISCONNECTED;              // MQTT state
+uint16_t MQTT_Retry = 125;                            // Timer to retry the MQTT connection
+uint16_t MQTT_errors = 0;                             // MQTT errors Counter
+uint32_t MQTT_LastTime = 0;                           // Last MQTT connection attempt time stamp
 
 // Initialize MQTT Client
 PubSubClient MQTTclient(wifiClient);
@@ -26,33 +27,35 @@ PubSubClient MQTTclient(wifiClient);
 
 // MQTT Functions //
 String mqtt_pathtele() {
-  return "/" + config.ClientID + "/" + config.Location + "/" + config.DeviceName + "/telemetry/";
+  return "/" + String(config.ClientID) + "/" + String(config.Location) + "/" + String(config.DeviceName) + "/telemetry/";
 }
 
 
 String mqtt_pathconf() {
-  return "/" + config.ClientID + "/" + config.Location + "/" + config.DeviceName + "/configure/";
+  return "/" + String(config.ClientID) + "/" + String(config.Location) + "/" + String(config.DeviceName) + "/configure/";
 }
 
 
 void mqtt_publish(String pubpath, String pubtopic, String pubvalue, boolean toretain = false) {
-  String topic = "";
-  topic += pubpath; topic += pubtopic;     //topic += "/";
-  // Send payload
-  if (MQTTclient.publish(topic.c_str(), pubvalue.c_str(), toretain) == 1) telnet_println("MQTT published:  " + String(topic.c_str()) + " = " + String(pubvalue.c_str()));
-  else {
-      //flash_LED(2);
-      telnet_println("");
-      telnet_println("!!!!! MQTT message NOT published. Try uncomment #define MQTT_MAX_PACKET_SIZE 512 at the beginning of mqtt.h file");
-      telnet_println("");
-  }
+    String topic = "";
+    topic += pubpath; topic += pubtopic;     //topic += "/";
+    // Send payload
+    if (MQTT_state == MQTT_CONNECTED) {
+        if (MQTTclient.publish(topic.c_str(), pubvalue.c_str(), toretain) == 1) telnet_println("MQTT published:  " + String(topic.c_str()) + " = " + String(pubvalue.c_str()));
+        else {
+            //flash_LED(2);
+            telnet_println("");
+            telnet_println("!!!!! MQTT message NOT published. !!!!!");
+            telnet_println("");
+        }
+    }
 }
 
 
 void mqtt_subscribe(String subpath, String subtopic) {
     String topic = "";
     topic += subpath; topic += subtopic;
-    if( MQTTclient.subscribe(topic.c_str())) telnet_println("subscribed to topic: " + topic);
+    if (MQTTclient.subscribe(topic.c_str())) telnet_println("subscribed to topic: " + topic);
     else telnet_println("Error on MQTT subscription!");
 }
 
@@ -65,25 +68,29 @@ void mqtt_unsubscribe(String subpath, String subtopic) {
 }
 
 
-int mqtt_connect() {
+void mqtt_connect() {
     telnet_print("Connecting to MQTT Broker ... ");
-    MQTTclient.setServer(config.MQTT_Server.c_str(), config.MQTT_Port);
-    // Attempt to connect (clientID, username, password, willTopic, willQoS, willRetain, willMessage, cleanSession)
-    if ( MQTTclient.connect(ChipID.c_str(), config.MQTT_User.c_str(), config.MQTT_Password.c_str(), (mqtt_pathtele() + "Status").c_str(), 0, false, "UShut", true)) {
-        telnet_println( "[DONE]" );
-        mqtt_subscribe(mqtt_pathconf(), "+");
-    }
+    if (WIFI_state != WL_CONNECTED) telnet_println( "ERROR! ==> WiFi NOT Connected!" );
     else {
-        telnet_print( "  MQTT ERROR! ==> " );
-        telnet_println( String(MQTTclient.state()) );
+        MQTTclient.setServer(config.MQTT_Server, config.MQTT_Port);
+        // Attempt to connect (clientID, username, password, willTopic, willQoS, willRetain, willMessage, cleanSession)
+        if (MQTTclient.connect(ChipID.c_str(), config.MQTT_User, config.MQTT_Password, (mqtt_pathtele() + "Status").c_str(), 0, false, "UShut", true)) {
+            MQTT_state = MQTT_CONNECTED;
+            telnet_println( "[DONE]" );
+            mqtt_subscribe(mqtt_pathconf(), "+");
         }
-    return MQTTclient.state();
+        else {
+            MQTT_state = MQTTclient.state();
+            telnet_println("MQTT ERROR! ==> " + String(MQTT_state));
+        };
+    }
 }
 
 
 void mqtt_disconnect() {
     mqtt_unsubscribe(mqtt_pathconf(), "+");
     MQTTclient.disconnect();
+    MQTT_state = MQTT_DISCONNECTED;
     telnet_println("Disconnected from MQTT Broker.");
 }
 
@@ -104,11 +111,11 @@ void on_message(const char* topic, byte* payload, unsigned int length) {
     telnet_println("Payload: " + String((char*)msg));
 
     // Decode JSON request
-    StaticJsonBuffer<200> jsonBuffer;
-    JsonObject& data = jsonBuffer.parseObject((char*)msg);
+    StaticJsonDocument<200> data;
+    DeserializationError JSONerror = deserializeJson(data, msg);
 
-    if (!data.success()) {
-      telnet_println("JSON Object parsing failed");
+    if (JSONerror) {
+      telnet_println("JSON deserialization failed!. Error code: " + String(JSONerror.c_str()));
       return;
     }
 
@@ -117,26 +124,26 @@ void on_message(const char* topic, byte* payload, unsigned int length) {
     String reqvalue = String((const char*)data["value"]);
     telnet_println("Received Data: " + reqparam + " = " + reqvalue);
 
-    if ( reqparam == "DeviceName") config.DeviceName = String((const char*)data["value"]);
-    if ( reqparam == "Location") config.Location = String((const char*)data["value"]);
-    if ( reqparam == "ClientID") config.ClientID = String((const char*)data["value"]);
+    if ( reqparam == "DeviceName") strcpy(config.DeviceName, (const char*)data["value"]);
+    if ( reqparam == "Location") strcpy(config.Location, (const char*)data["value"]);
+    if ( reqparam == "ClientID") strcpy(config.ClientID, (const char*)data["value"]);
     if ( reqparam == "DEEPSLEEP") { config.DEEPSLEEP = bool(data["value"]);storage_write(); }
     if ( reqparam == "SLEEPTime") { config.SLEEPTime = data["value"];storage_write(); }
     if ( reqparam == "ONTime") { config.ONTime = data["value"];storage_write(); }
     if ( reqparam == "ExtendONTime") if (bool(data["value"]) == true) Extend_time = 60;
     if ( reqparam == "LED") config.LED = bool(data["value"]);
-    if ( reqparam == "TELNET") { config.TELNET = bool(data["value"]); storage_write(); BootESP(); }
-    if ( reqparam == "OTA") { config.OTA = bool(data["value"]); storage_write(); BootESP(); }
-    if ( reqparam == "WEB") { config.WEB = bool(data["value"]); storage_write(); BootESP(); }
+    if ( reqparam == "TELNET") { config.TELNET = bool(data["value"]); storage_write(); ESPBoot(); }
+    if ( reqparam == "OTA") { config.OTA = bool(data["value"]); storage_write(); ESPBoot(); }
+    if ( reqparam == "WEB") { config.WEB = bool(data["value"]); storage_write(); ESPBoot(); }
     if ( reqparam == "STAMode") config.STAMode = bool(data["value"]);
-    if ( reqparam == "ssid") config.ssid = String((const char*)data["value"]);
-    if ( reqparam == "WiFiKey") config.WiFiKey = String((const char*)data["value"]);
-    if ( reqparam == "NTPServerName") config.NTPServerName = String((const char*)data["value"]);
+    if ( reqparam == "ssid") strcpy(config.ssid, (const char*)data["value"]);
+    if ( reqparam == "WiFiKey") strcpy(config.WiFiKey, (const char*)data["value"]);
+    if ( reqparam == "NTPServerName") strcpy(config.NTPServerName, (const char*)data["value"]);
     if ( reqparam == "Update_Time_Via_NTP_Every") config.Update_Time_Via_NTP_Every = data["value"];
     if ( reqparam == "TimeZone") config.TimeZone = data["value"];
     if ( reqparam == "isDayLightSaving") config.isDayLightSaving = bool(data["value"]);
     if ( reqparam == "Store") if (bool(data["value"]) == true) storage_write();
-    if ( reqparam == "Boot") if (bool(data["value"]) == true) BootESP();
+    if ( reqparam == "Boot") if (bool(data["value"]) == true) ESPBoot();
     if ( reqparam == "Reset") if (bool(data["value"]) == true) storage_reset();
     if ( reqparam == "Temp_Corr") {
 		    config.Temp_Corr = data["value"];
@@ -155,10 +162,28 @@ void mqtt_callback() {
 
 
 // MQTT commands to run on setup function.
-int mqtt_setup() {
-    int MQTTstatus = mqtt_connect();
+void mqtt_setup() {
+    mqtt_connect();
     mqtt_callback();
-    return MQTTstatus;
+    if (MQTT_state == MQTT_CONNECTED) {
+        if (ESP.getResetReason() != "Deep-Sleep Wake") {
+            mqtt_publish(mqtt_pathtele(), "Boot", ESP.getResetReason());
+            mqtt_publish(mqtt_pathtele(), "ChipID", ChipID);
+            mqtt_publish(mqtt_pathtele(), "Brand", BRANDName);
+            mqtt_publish(mqtt_pathtele(), "Model", MODELName);
+            mqtt_publish(mqtt_pathtele(), "SWVer", SWVer);
+        }
+        if (BattPowered) {
+            // Check Battery Level
+            Batt_Level = getVoltage();
+            mqtt_publish(mqtt_pathtele(), "BatLevel", String(Batt_Level));
+            if (Batt_Level > Batt_L_Thrs) mqtt_publish(mqtt_pathtele(), "Status", "Battery");
+            else mqtt_publish(mqtt_pathtele(), "Status", "LOW Battery");
+        }
+        else mqtt_publish(mqtt_pathtele(), "Status", "Mains");
+        mqtt_publish(mqtt_pathtele(), "RSSI", String(getRSSI()));
+        mqtt_publish(mqtt_pathtele(), "IP", WiFi.localIP().toString());
+    }
 }
 
 

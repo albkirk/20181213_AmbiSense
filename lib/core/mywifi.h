@@ -1,4 +1,5 @@
 // Expose Espressif SDK functionality
+/*
 extern "C" {
 #include "user_interface.h"
   typedef void (*freedom_outside_cb_t)(uint8 status);
@@ -6,31 +7,33 @@ extern "C" {
   void wifi_unregister_send_pkt_freedom_cb(void);
   int  wifi_send_pkt_freedom(uint8 *buf, int len, bool sys_seq);
 }
+*/
 
 //#include <ESP8266WiFi.h>
+#include <ArduinoJson.h>
 #include <functions.h>
 
 
 // Sniffer CONSTANTs
-#define PURGETIME 600000
-#define MINRSSI -70
+#define PURGETIME 600000                        // Timeout to purge the list [miliseconds]
+#define MINRSSI -70                             // Min RSSI to add the device in the list
 #define MAXDEVICES 100
-#define JBUFFER 15 + (MAXDEVICES * 40)
-#define SENDTIME 30000
-WiFiClient wifiClient;
+#define JBUFFER 30 + (MAXDEVICES * 40)
+#define ARDUINOJSON_ENABLE_ARDUINO_STRING 1
 
 
 // WiFi and Sniffer VARIABLEs
 int WIFI_state = WL_DISCONNECTED;
+int Last_WIFI_state = WL_NO_SHIELD;
 unsigned int WIFI_Retry = 120;                  // Timer to retry the WiFi connection
 unsigned long WIFI_LastTime = 0;                // Last WiFi connection attempt time stamp
 int WIFI_errors = 0;                            // WiFi errors Counter
 
-unsigned long sendEntry;
 char jsonString[JBUFFER];
-StaticJsonBuffer<JBUFFER>  wifijsonBuffer;
+DynamicJsonDocument doc(JBUFFER);
 
-
+//WiFi initialization
+WiFiClient wifiClient;
 
 // Sniffer FUNCTIONS
 void purgeDevices() {
@@ -133,25 +136,28 @@ void wifi_showPRBs() {
 
 String wifi_listAPs() {
     String devices_ap, devices_ssid;
+    uint devices_rssi;
 
     // Purge and recreate json string
-    wifijsonBuffer.clear();
-    JsonObject& root = wifijsonBuffer.createObject();
-    JsonArray& ap = root.createNestedArray("APs");
-    JsonArray& ssid = root.createNestedArray("AP_SSIDs");
+    doc.clear();
+    JsonArray ap = doc.createNestedArray("APs");
+    JsonArray ssid = doc.createNestedArray("AP_SSIDs");
+    JsonArray rssi = doc.createNestedArray("AP_RSSIs");
 
     // add APs
     for (int u = 0; u < aps_known_count; u++) {
         if (aps_known[u].rssi > MINRSSI) {
             devices_ap = formatMac1(aps_known[u].bssid);
             devices_ssid = (char*)aps_known[u].ssid;
+            devices_rssi = aps_known[u].rssi;
             ap.add(devices_ap);
             ssid.add(devices_ssid);
+            rssi.add(devices_rssi);
         }
     }
 
     //root.prettyPrintTo(Serial);               // dump pretty format to serial interface
-    root.printTo(jsonString);
+    serializeJson(doc, jsonString);             //root.printTo(jsonString);
     // Serial.print("jsonString ready to Publish: "); Serial.println((jsonString));
     return jsonString;
 }
@@ -161,9 +167,8 @@ String wifi_listSTAs() {
     String devices;
 
     // Purge and recreate json string
-    wifijsonBuffer.clear();
-    JsonObject & root = wifijsonBuffer.createObject();
-    JsonArray & sta = root.createNestedArray("Stations");
+    doc.clear();
+    JsonArray sta = doc.createNestedArray("Stations");
 
     // Add Clients that has RSSI higher then minimum
     for (int u = 0; u < clients_known_count; u++) {
@@ -174,7 +179,7 @@ String wifi_listSTAs() {
     }
 
     //root.prettyPrintTo(Serial);               // dump pretty format to serial interface
-    root.printTo(jsonString);
+    serializeJson(doc, jsonString);             //root.printTo(jsonString);
     //Serial.print("jsonString ready to Publish: "); Serial.println((jsonString));
     return jsonString;
 }
@@ -184,10 +189,9 @@ String wifi_listProbes() {
     String devices_prb, devices_ssid;
 
     // Purge and recreate json string
-    wifijsonBuffer.clear();
-    JsonObject& root = wifijsonBuffer.createObject();
-    JsonArray& prb = root.createNestedArray("PROBEs");
-    JsonArray& ssid = root.createNestedArray("SSIDs");
+    doc.clear();
+    JsonArray prb = doc.createNestedArray("PROBEs");
+    JsonArray ssid = doc.createNestedArray("SSIDs");
 
     // add PROBEs
     for (int u = 0; u < probes_known_count; u++) {
@@ -200,7 +204,7 @@ String wifi_listProbes() {
     }
 
     //root.prettyPrintTo(Serial);               // dump pretty format to serial interface
-    root.printTo(jsonString);
+    serializeJson(doc, jsonString);             //root.printTo(jsonString);
     Serial.print("jsonString ready to Publish: "); Serial.println((jsonString));
     return jsonString;
 }
@@ -211,8 +215,12 @@ String wifi_listProbes() {
 void wifi_connect() {
   //  Connect to WiFi acess point or start as Acess point
   if ( WiFi.status() != WL_CONNECTED ) {
+      //Serial.printf("Default hostname: %s\n", WiFi.hostname().c_str());
+      String host_name = String(config.Location + String("-") + config.DeviceName);
+      wifi_station_set_hostname(host_name.c_str());      // WiFi.hostname(host_name);
+      //Serial.printf("Calculated hostname: %s\n", WiFi.hostname().c_str());
       if (config.STAMode) {
-          // Setup ESP8266 in Station mode
+          // Setup ESP in Station mode
           WiFi.mode(WIFI_STA);
           // the IP address for the shield
           if (!config.dhcp) {
@@ -224,31 +232,33 @@ void wifi_connect() {
               WiFi.config(StaticIP, Gateway, Subnet, DNS);
           }
           //delay(1000);                        // required to comment for fast WiFi registration
-          WiFi.hostname(config.Location + String("-") + config.DeviceName);
-          WiFi.begin(config.ssid.c_str(), config.WiFiKey.c_str());
+          WiFi.begin(config.ssid, config.WiFiKey);
           WIFI_state = WiFi.waitForConnectResult();
           if ( WIFI_state == WL_CONNECTED ) {
-              Serial.print("Connected to WiFi network! " + config.ssid + " IP: "); Serial.println(WiFi.localIP());
+              Serial.print("Connected to WiFi network! " + String(config.ssid) + " IP: "); Serial.println(WiFi.localIP());
+              rtcData.LastWiFiChannel = uint(wifi_get_channel);
           }
       }
       else {
           // Initialize Wifi in AP+STA mode
           WiFi.mode(WIFI_AP_STA);
-          WiFi.begin(config.ssid.c_str(), config.WiFiKey.c_str());
+          WiFi.begin(config.ssid, config.WiFiKey);
           WIFI_state = WiFi.waitForConnectResult();
           if ( WIFI_state == WL_CONNECTED ) {
-              Serial.print("Connected to WiFi network! " + config.ssid + " IP: "); Serial.println(WiFi.localIP());
+              Serial.print("Connected to WiFi network! " + String(config.ssid) + " IP: "); Serial.println(WiFi.localIP());
           }
           //WiFi.mode(WIFI_AP);                 // comment the 6 lines above if you need AP only
           WiFi.softAP(ESP_SSID.c_str());
-          //WiFi.softAP(config.ssid.c_str());
+          //WiFi.softAP(config.ssid);
           Serial.print("WiFi in AP mode, with IP: "); Serial.println(WiFi.softAPIP());
       }
   }
+  else WIFI_state = WL_CONNECTED;
 }
 
 
 void wifi_setup() {
+    WiFi.mode(WIFI_OFF);
     //WiFi.persistent(false);                   // required for fast WiFi registration
     wifi_connect();
 }
@@ -257,24 +267,27 @@ void wifi_loop() {
     if ( WiFi.status() != WL_CONNECTED ) {
         if ( millis() - WIFI_LastTime > (WIFI_Retry * 1000)) {
             WIFI_errors ++;
-            Serial.print( "in loop function WiFI ERROR! #: " + String(WIFI_errors) + "  ==> "); Serial.println( WiFi.status() );
+            Serial.println( "in loop function WiFI ERROR! #: " + String(WIFI_errors) + "  ==> " + (wl_status_t)WiFi.status());
             WIFI_LastTime = millis();
             wifi_connect();
         }
+    }
+    else {
+        if (WIFI_state != WL_CONNECTED) WIFI_state = WL_CONNECTED;
     }
     yield();
 }
 
 
-void wifi_sniffer() {
+void wifi_sniffer(uint startchannel = rtcData.LastWiFiChannel, uint8 endchannel = (rtcData.LastWiFiChannel + 13)) {
     wifi_set_opmode(STATION_MODE);              // Promiscuous works only with station mode
-    wifi_set_channel(1);
     wifi_promiscuous_enable(false);
     wifi_set_promiscuous_rx_cb(promisc_cb);     // Set up promiscuous callback
     wifi_promiscuous_enable(true);
     boolean NewDevice = false;
-    for (uint channel = 1; channel <= 13; channel++) {    // ESP only supports 1 ~ 13
-        wifi_set_channel(channel);
+    for (uint channel = startchannel; channel <= endchannel; channel++) {    // ESP only supports 1 ~ 13
+        if (channel%13 == 0) wifi_set_channel(13);
+        else wifi_set_channel(channel%13);
         for (int n = 0; n < 200; n++) {         // 200 times delay(1) = 200 ms, which is 2 beacon's of 100ms
             delay(1);                           // critical processing timeslice for NONOS SDK!
             if (aps_known_count > aps_known_count_old) {
