@@ -14,7 +14,7 @@
 // HARWARE & SOFTWARE Version
 #define BRANDName "AlBros_Team"                         // Hardware brand name
 #define MODELName "AmbiSense"                           // Hardware model name
-#define SWVer "14.01"                                   // Major.Minor Software version (use String 01.00 - 99.99 format !)
+#define SWVer "14.03"                                   // Major.Minor Software version (use String 01.00 - 99.99 format !)
 
 // Battery & ESP Voltage
 #define BattPowered true                                // Is the device battery powered?
@@ -67,9 +67,9 @@ void config_defaults() {
     Serial.println("Setting config Default values");
 
     strcpy(config.DeviceName, "AmbiSense");               // Device Name
-    strcpy(config.Location, "Hall");                      // Device Location
+    strcpy(config.Location, "MainRoom");                  // Device Location
     strcpy(config.ClientID, "001001");                    // Client ID (used on MQTT)
-    config.ONTime = 10;                                   // 0-255 seconds (Byte range)
+    config.ONTime = 1;                                    // 0-255 seconds (Byte range)
     config.SLEEPTime = 15;                                // 0-255 minutes (Byte range)
     config.DEEPSLEEP = true;                              // 0 - Disabled, 1 - Enabled
     config.LED = true;                                    // 0 - OFF, 1 - ON
@@ -84,18 +84,18 @@ void config_defaults() {
     config.IP[0] = 192; config.IP[1] = 168; config.IP[2] = 1; config.IP[3] = 10;
     config.Netmask[0] = 255; config.Netmask[1] = 255; config.Netmask[2] = 255; config.Netmask[3] = 0;
     config.Gateway[0] = 192; config.Gateway[1] = 168; config.Gateway[2] = 1; config.Gateway[3] = 254;
-    strcpy(config.NTPServerName, "pt.pool.ntp.org");         // NTP Server
+    strcpy(config.NTPServerName, "pt.pool.ntp.org");      // NTP Server
     config.Update_Time_Via_NTP_Every = 1200;              // Time in minutes to re-sync the clock
     config.TimeZone = 0;                                  // -12 to 13. See Page_NTPSettings.h why using -120 to 130 on the code.
     config.isDayLightSaving = 1;                          // 0 - Disabled, 1 - Enabled
-    strcpy(config.MQTT_Server, "iothubna.hopto.org");    // MQTT Broker Server (URL or IP)
+    strcpy(config.MQTT_Server, "iothubna.hopto.org");     // MQTT Broker Server (URL or IP)
     config.MQTT_Port = 1883;                              // MQTT Broker TCP port
-    strcpy(config.MQTT_User, "admin");                   // MQTT Broker username
-    strcpy(config.MQTT_Password, "admin");               // MQTT Broker password
-    strcpy(config.UPDATE_Server, "iothubna.hopto.org");  // UPDATE Server (URL or IP)
+    strcpy(config.MQTT_User, "admin");                    // MQTT Broker username
+    strcpy(config.MQTT_Password, "admin");                // MQTT Broker password
+    strcpy(config.UPDATE_Server, "iothubna.hopto.org");   // UPDATE Server (URL or IP)
     config.UPDATE_Port = 1880;                            // UPDATE Server TCP port
-    strcpy(config.UPDATE_User, "user");                  // UPDATE Server username
-    strcpy(config.UPDATE_Password, "1q2w3e4r");          // UPDATE Server password
+    strcpy(config.UPDATE_User, "user");                   // UPDATE Server username
+    strcpy(config.UPDATE_Password, "1q2w3e4r");           // UPDATE Server password
     config.Temp_Corr = 0;     // Sensor Temperature Correction Factor, typically due to electronic self heat.
 }
 
@@ -112,7 +112,7 @@ void config_defaults() {
 
 
 // **** Normal code definition here ...
-#define ADC_SW_PIN 4                              // Base of Transistor connected to PIN GPIO4, acting as Switch
+#define SW_PIN 4                              // Base of Transistor connected to PIN GPIO4, acting as Switch
 float Temperature = 0.0;                          // Variable
 float Humidity = 0.0;                             // Variable
 float Lux = 0.0;                                  // Variable
@@ -121,7 +121,7 @@ float Lux = 0.0;                                  // Variable
 // **** Normal code functions here ...
 float getLux (int Nmeasures = Number_of_measures, float Max_val = 910, float Min_val = 55) {
     // 910 and 55 are empiric values extract while testing the circut
-    digitalWrite(ADC_SW_PIN, HIGH);   // Set ADC Switch to HIGH to sample Lux (BC547 Saturated)
+    digitalWrite(SW_PIN, HIGH);   // Set ADC Switch to HIGH to sample Lux (BC547 Saturated)
     delay(100);
     telnet_println("ADC Switch in Lux position");
     float lux = 0.0;
@@ -134,7 +134,7 @@ float getLux (int Nmeasures = Number_of_measures, float Max_val = 910, float Min
     if ( lux < 0 )   lux = 0.0;
     if ( lux > 100 ) lux = 100.0;
     telnet_println("LUX: " + String(lux));
-    digitalWrite(ADC_SW_PIN, LOW);   // Set ADC Switch to LOW to sample Voltage (BC547 Cut)
+    digitalWrite(SW_PIN, LOW);   // Set ADC Switch to LOW to sample Voltage (BC547 Cut)
     telnet_println("ADC Switch in VOLTAGE position");
     return lux;
 }
@@ -156,8 +156,8 @@ void setup() {
 
 
  // Output GPIOs
-  pinMode(ADC_SW_PIN, OUTPUT);                      // Initialize the ADC_SW_PIN pin as an output
-  digitalWrite(ADC_SW_PIN, LOW);                    // Set ADC Switch to LOW to sample Voltage (BC547 Cut)
+  pinMode(SW_PIN, OUTPUT);                      // Initialize the SW_PIN pin as an output
+  digitalWrite(SW_PIN, LOW);                    // Set ADC Switch to LOW to sample Voltage (BC547 Cut)
 
 
  // Input GPIOs
@@ -194,13 +194,27 @@ void setup() {
       Temperature = getTemperature();
       Humidity = getHumidity();
       Lux = getLux();
-      telnet_print("Temperature: " + String(Temperature) + " C\t");
-      telnet_print("Humidity: " + String(Humidity) + " %\t");
-      telnet_print("Lux: " + String(Lux) + " %\t");
+      
+      if ( Temperature == -100 ) {
+            telnet_print("Temperatura: -- ERRO! -- \t");
+            mqtt_publish(mqtt_pathtele(), "Status", "ERRO: Temperatura");
+        } else {
+          telnet_print("Temperatura: " + String(Temperature) + " C \t");
+          mqtt_publish(mqtt_pathtele(), "Temperatura", String(Temperature));
+        };
+
+      if ( Humidity == -1 ) {
+            telnet_print("Humidade: -- ERRO! -- \t");
+            mqtt_publish(mqtt_pathtele(), "Status", "ERRO: Humidade");
+        } else {
+          telnet_print("Humidade: " + String(Humidity) + " % \t");
+          mqtt_publish(mqtt_pathtele(), "Humidade", String(Humidity));
+        };
+          
+      telnet_print("Lux: " + String(Lux) + " % \t");
       telnet_println("");
-      mqtt_publish(mqtt_pathtele(), "Temperatura", String(Temperature));
-      mqtt_publish(mqtt_pathtele(), "Humidade", String(Humidity));
       mqtt_publish(mqtt_pathtele(), "Lux", String(Lux));
+
 
   // Last bit of code before leave setup
       ONTime_Offset = millis()/1000 + 0.1;  //  100ms after finishing the SETUP function it starts the "ONTime" countdown.

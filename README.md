@@ -10,7 +10,7 @@ Temperature and Humidity are measured using the **DHT22** module.
 
 Light is measured using **LDR** based Voltage divider circuit attached to ESP ADC pin.
 
-As it is battery powered, the MCU is kept in sleepmode as mush possible and is only waked to measure the ambient and to report those values. Currently, a single 18650 Lithium Ion battey can last more than a month booting up on every 5 minutes. **Batt Charger** circuit included.
+As it is battery powered, the MCU is kept in sleepmode as mush possible and is only waked to measure the ambient and to report those values. Currently, a single 18650 Lithium Ion battey can last more than a month booting up on every 15 minutes. **Batt Charger** circuit included.
 
 Simple **Push Button** is used to Start the MCU (RST to GND shunt).
 
